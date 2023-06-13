@@ -8,6 +8,7 @@
 #include <string>
 #include <unordered_set>
 #include <vector>
+#include <chrono>
 
 using namespace std;
 
@@ -47,7 +48,7 @@ public:
                     }
                     task();
                 }
-            });
+                });
         }
     }
 
@@ -57,15 +58,15 @@ public:
             stop = true;
         }
         cv.notify_all();
-        for (auto &i : threads) {
+        for (auto& i : threads) {
             i.join();
         }
     }
 
-    template <typename F, typename... Args> auto enqueue(F &&f, Args &&...args) {
+    template <typename F, typename... Args> auto enqueue(F&& f, Args &&...args) {
         using return_type = std::invoke_result_t<F, Args...>;
         auto task = std::make_shared<std::packaged_task<return_type()>>(
-                std::bind(std::forward<F>(f), std::forward<Args>(args)...));
+            std::bind(std::forward<F>(f), std::forward<Args>(args)...));
         auto ret = task->get_future();
         {
             std::unique_lock<std::mutex> lock(mtx);
@@ -77,14 +78,16 @@ public:
 };
 
 std::unordered_set<std::string> unlocked_files;
+int totalPieces = 0;
 
-int main(int argc, char *argv[]) {
+int main(int argc, char* argv[]) {
     ::system("chcp>nul 2>nul 65001");
 
     if (!filesystem::exists("unlock")) {
         filesystem::create_directory("unlock");
-    } else {
-        for (auto &i : filesystem::directory_iterator("./unlock")) {
+    }
+    else {
+        for (auto& i : filesystem::directory_iterator("./unlock")) {
             if (i.is_directory()) {
                 continue;
             }
@@ -92,9 +95,11 @@ int main(int argc, char *argv[]) {
         }
     }
 
+    auto start = std::chrono::steady_clock::now();
+
     {
         thread_pool pool;
-        for (auto &i : filesystem::directory_iterator(".")) {
+        for (auto& i : filesystem::directory_iterator(".")) {
             if (i.is_directory()) {
                 continue;
             }
@@ -102,20 +107,29 @@ int main(int argc, char *argv[]) {
                 continue;
             }
             pool.enqueue(
-                    [](const filesystem::path &path) {
-                        if (unlocked_files.find(path.stem().u8string()) ==
-                                unlocked_files.end()) {
-                            ncm::ncmDump(path.u8string(), "unlock");
-                            log("Unlocked: ", path.u8string());
-                        } else {
-                            log("Skipped: ", path.u8string());
-                        }
-                    },
-                    i.path());
+                [](const filesystem::path& path) {
+                    if (unlocked_files.find(path.stem().u8string()) ==
+                        unlocked_files.end()) {
+                        ncm::ncmDump(path.u8string(), "unlock");
+                        log("Unlocked: ", path.u8string());
+                        ++totalPieces;
+                    }
+                    else {
+                        log("Skipped: ", path.u8string());
+                    }
+                },
+                i.path());
         }
     }
 
+    auto end = std::chrono::steady_clock::now();
     log("\nFinished.");
+    log("Time elapsed: ",
+        std::chrono::duration_cast<std::chrono::milliseconds>(end - start)
+        .count() / 1000.0,
+        "s");
+    log("Unlocked ", totalPieces, " pieces of music.");
+
 
     system("pause");
     return 0;
