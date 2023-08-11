@@ -23,5 +23,8 @@
     <ClInclude Include="src\pool.h">
       <Filter>头文件</Filter>
     </ClInclude>
+    <ClInclude Include="src\cmdline.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
   </ItemGroup>
 </Project>
