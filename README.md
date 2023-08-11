@@ -1,10 +1,12 @@
 # ncmpp
 
-一个极速的ncm解密器
+一个极速的多线程ncm解密器
 
 建议使用带有图形界面的版本：[ncmppGui](https://github.com/Majjcom/ncmppGui)
 
 ## 使用方法
+
+### 快速开始
 
 - 下载`Release`中最新版本的可执行文件
 
@@ -14,6 +16,12 @@
 
 - 等待解密完成
 - 解密后的文件存放在`unlock`文件夹中
+
+### 命令行参数
+
+--threads[t] 最大线解密程数
+
+--showtime[s] 显示解密消耗的时间
 
 ## 构建环境
 

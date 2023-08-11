@@ -35,6 +35,8 @@ int main(int argc, char* argv[])
     bool success = cmd.parse(argc, argv);
     if (!success)
     {
+        log("\033[31m", cmd.error(), "\033[0m");
+        log(cmd.usage());
         return 1;
     }
 
