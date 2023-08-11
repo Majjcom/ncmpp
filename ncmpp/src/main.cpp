@@ -1,14 +1,12 @@
 #include "ncmlib/ncmdump.h"
 #include <filesystem>
-#include <functional>
-#include <future>
 #include <iostream>
-#include <mutex>
-#include <queue>
 #include <string>
-#include <unordered_set>
 #include <vector>
 #include <chrono>
+
+#include "cmdline.h"
+#include "pool.h"
 
 using namespace std;
 
@@ -19,76 +17,44 @@ template <typename... Args> void log(Args &&...args) {
     std::cout << endl;
 }
 
-class thread_pool {
-
-    std::vector<std::thread> threads;
-    std::mutex mtx;
-    std::condition_variable cv;
-    std::queue<std::function<void()>> tasks;
-    bool stop = false;
-
-public:
-    thread_pool() {
-        auto n = std::thread::hardware_concurrency();
-        if (n == 0) {
-            n = 2;
-        }
-        for (auto i = 0u; i < n; ++i) {
-            threads.emplace_back([this] {
-                while (true) {
-                    std::function<void()> task;
-                    {
-                        std::unique_lock<std::mutex> lock(mtx);
-                        cv.wait(lock, [this] { return stop || !tasks.empty(); });
-                        if (stop && tasks.empty()) {
-                            return;
-                        }
-                        task = std::move(tasks.front());
-                        tasks.pop();
-                    }
-                    task();
-                }
-                });
-        }
-    }
-
-    ~thread_pool() {
-        {
-            std::unique_lock<std::mutex> lock(mtx);
-            stop = true;
-        }
-        cv.notify_all();
-        for (auto& i : threads) {
-            i.join();
-        }
-    }
-
-    template <typename F, typename... Args> auto enqueue(F&& f, Args &&...args) {
-        using return_type = std::invoke_result_t<F, Args...>;
-        auto task = std::make_shared<std::packaged_task<return_type()>>(
-            std::bind(std::forward<F>(f), std::forward<Args>(args)...));
-        auto ret = task->get_future();
-        {
-            std::unique_lock<std::mutex> lock(mtx);
-            tasks.emplace([task] { (*task)(); });
-        }
-        cv.notify_one();
-        return ret;
-    }
-};
-
 std::unordered_set<std::string> unlocked_files;
 int totalPieces = 0;
 
-int main(int argc, char* argv[]) {
+int main(int argc, char* argv[])
+{
+    cmdline::parser cmd;
+    cmd.set_program_name("ncmpp");
+    cmd.add<unsigned int>("threads", 't',
+        "Max count of unlock threads.",
+        false, std::thread::hardware_concurrency()
+    );
+    cmd.add("showtime", 's',
+        "Shows how long it took to unlock everything."
+    );
+
+    bool success = cmd.parse(argc, argv);
+    if (!success)
+    {
+        return 1;
+    }
+
+    unsigned int c_thread = cmd.get<unsigned int>("threads");
+    bool s_time = cmd.exist("showtime");
+
+    log("Start with ", c_thread," threads.\n");
+
     ::system("chcp>nul 2>nul 65001");
 
-    if (!filesystem::exists("unlock")) {
+    if (!filesystem::exists("unlock"))
+    {
         filesystem::create_directory("unlock");
     }
-    else {
-        for (auto& i : filesystem::directory_iterator("./unlock")) {
-            if (i.is_directory()) {
+    else
+    {
+        for (auto& i : filesystem::directory_iterator("./unlock"))
+        {
+            if (i.is_directory())
+            {
                 continue;
             }
             unlocked_files.emplace(i.path().stem().u8string());
@@ -98,24 +64,26 @@ int main(int argc, char* argv[]) {
     auto start = std::chrono::steady_clock::now();
 
     {
-        thread_pool pool;
-        for (auto& i : filesystem::directory_iterator(".")) {
-            if (i.is_directory()) {
-                continue;
-            }
-            if (i.path().extension() != ".ncm") {
+        thread_pool pool(c_thread);
+        for (auto& i : filesystem::directory_iterator("."))
+        {
+            if (i.is_directory() ||
+                i.path().extension() != ".ncm"
+            )  {
                 continue;
             }
             pool.enqueue(
-                [](const filesystem::path& path) {
+                [](const filesystem::path& path)
+                {
                     if (unlocked_files.find(path.stem().u8string()) ==
                         unlocked_files.end()) {
                         ncm::ncmDump(path.u8string(), "unlock");
-                        log("Unlocked: ", path.u8string());
+                        log("\033[36mUnlocked:\t", path.filename().u8string(), "\033[0m");
                         ++totalPieces;
                     }
-                    else {
-                        log("Skipped: ", path.u8string());
+                    else
+                    {
+                        log("\033[33mSkipped:\t", path.filename().u8string(), "\033[0m");
                     }
                 },
                 i.path());
@@ -123,14 +91,17 @@ int main(int argc, char* argv[]) {
     }
 
     auto end = std::chrono::steady_clock::now();
-    log("\nFinished.");
-    log("Time elapsed: ",
-        std::chrono::duration_cast<std::chrono::milliseconds>(end - start)
-        .count() / 1000.0,
-        "s");
+    log("\n\033[32mFinished.\033[0m");
     log("Unlocked ", totalPieces, " pieces of music.");
 
+    if (s_time)
+    {
+        log("Time elapsed: ",
+            std::chrono::duration_cast<std::chrono::milliseconds>(end - start)
+            .count() / 1000.0,
+            "s");
+    }
 
-    system("pause");
+    ::system("pause");
     return 0;
 }
